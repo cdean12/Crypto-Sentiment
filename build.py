@@ -17,7 +17,8 @@ WEIGHTS = {"fng": 0.30, "funding": 0.25, "ls": 0.10, "cp": 0.10, "soc": 0.25}
 MANUAL_DIR = ROOT / "manual"
 MANUAL_CSV = ROOT / "data" / "manual_scores.csv"
 FUNDING_SCALE = 0.0003   # +/-0.03% per 8h maps to +/-1 (extreme crowded long/short)
-LS_SCALE = 0.4           # ln(long/short ratio) of +/-0.4 maps to +/-1
+LS_WINDOW = 90           # long/short is scored vs its own trailing history (it sits above 1 normally)
+LS_MIN = 14             # need this many days before scoring it
 CP_MIN_VOTES = 20        # ignore days with too few votes to mean anything
 HORIZONS = [1, 7, 30]    # forward-return horizons in days
 LEVEL_THRESHOLD = 0.10   # |score| below this counts as neutral for hit-rate
@@ -97,15 +98,31 @@ def load_social():
     return {d: sum(v) / len(v) for d, v in days.items()}, log[-15:][::-1]
 
 
-def components(row, cp, soc=None):
+def ls_scores(rows):
+    """Rolling z-score of ln(long/short ratio), /2 and clipped, keyed by date."""
+    out, hist = {}, []
+    for row in rows:
+        r = f(row.get("ls_ratio"))
+        if not r or r <= 0:
+            continue
+        hist.append(math.log(r))
+        w = hist[-LS_WINDOW:]
+        if len(w) < LS_MIN:
+            continue
+        m = sum(w) / len(w)
+        sd = math.sqrt(sum((x - m) ** 2 for x in w) / len(w))
+        out[row["date"]] = clip((w[-1] - m) / sd / 2) if sd > 0 else 0.0
+    return out
+
+
+def components(row, cp, soc=None, ls=None):
     c = {}
     if f(row["fng"]) is not None:
         c["fng"] = clip((f(row["fng"]) - 50) / 50)
     if f(row["funding"]) is not None:
         c["funding"] = clip(f(row["funding"]) / FUNDING_SCALE)
-    r = f(row["ls_ratio"])
-    if r and r > 0:
-        c["ls"] = clip(math.log(r) / LS_SCALE)
+    if ls and row["date"] in ls:
+        c["ls"] = ls[row["date"]]
     if row["date"] in cp:
         c["cp"] = clip(cp[row["date"]])
     if soc and row["date"] in soc:
@@ -180,9 +197,10 @@ def main():
     rows = load_daily()
     cp = load_cp_daily()
     soc, soc_log = load_social()
+    ls = ls_scores(rows)
     series, latest_c = [], {}
     for r in rows:
-        c = components(r, cp, soc)
+        c = components(r, cp, soc, ls)
         s = composite(c)
         series.append({"date": r["date"], "price": f(r["price"]), "score": s, "soc": c.get("soc"), "c": c})
         if c:
