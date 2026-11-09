@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crypto Sentiment vs Price</title>
+<style>
+  :root { --bg:#0e1116; --card:#161b22; --line:#2a313c; --text:#e6edf3; --mut:#8b949e;
+          --price:#58a6ff; --sent:#f0883e; --soc:#d2a8ff; --good:#3fb950; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,sans-serif; }
+  main { max-width:1000px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:0 0 10px; }
+  .sub { color:var(--mut); margin-bottom:16px; }
+  .banner { background:#3d2b00; border:1px solid #7a5a00; color:#ffd666; padding:8px 12px; border-radius:6px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+  .big { font-size:28px; font-weight:600; } .mut { color:var(--mut); }
+  .bar { height:8px; background:#222a33; border-radius:4px; position:relative; margin-top:6px; }
+  .bar i { position:absolute; top:0; bottom:0; border-radius:4px; }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:right; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; } th { color:var(--mut); font-weight:500; }
+  .tabs button { background:none; border:1px solid var(--line); color:var(--mut); padding:3px 10px; border-radius:5px; cursor:pointer; margin-right:4px; }
+  .tabs button.on { color:var(--text); border-color:var(--mut); }
+  svg text { fill:var(--mut); font-size:11px; }
+  .legend span { margin-right:14px; } .dot { display:inline-block; width:10px; height:3px; margin-right:5px; vertical-align:middle; }
+  small { color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Crypto sentiment vs BTC price</h1>
+  <div class="sub" id="gen"></div>
+  <div class="banner" id="mock" style="display:none">Synthetic test data, not real market data.</div>
+
+  <div class="grid" id="top"></div>
+
+  <div class="card" style="margin-top:14px">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <h2>Sentiment score vs price</h2>
+      <div class="tabs" id="tabs"></div>
+    </div>
+    <div class="legend"><span><i class="dot" style="background:var(--price)"></i>BTC price</span><span><i class="dot" style="background:var(--sent)"></i>Composite sentiment (-1 fear to +1 greed)</span><span><i class="dot" style="background:var(--soc);height:8px;width:8px;border-radius:50%"></i>Social (manual) days</span></div>
+    <svg id="chart" width="100%" viewBox="0 0 960 360" preserveAspectRatio="none" style="height:360px"></svg>
+  </div>
+
+  <div class="card">
+    <h2>How well has sentiment predicted price?</h2>
+    <table id="acc"></table>
+    <p><small>
+      <b>Level correlation</b>: does a higher score line up with higher returns over the next N days (+1 yes, 0 no link, -1 opposite)?
+      <b>Change correlation</b> does the same for the 7-day change in the score.
+      <b>Hit rate</b>: share of days where a non-neutral score pointed the same way as the next move. Compare it with the <b>base rate</b> of price simply rising; a score is only useful if it beats that.
+      A negative correlation means the crowd has been a <i>contrarian</i> signal.
+      Windows overlap, so results look more certain than they are. Treat anything under ~100 observations as noise.
+    </small></p>
+  </div>
+
+  <div class="card">
+    <h2>Social (manual) on its own</h2>
+    <table id="accsoc"></table>
+    <p><small id="socnote"></small></p>
+    <h2 style="margin-top:14px">Recent manual entries</h2>
+    <table id="soclog"></table>
+  </div>
+
+  <div class="card">
+    <h2>What feeds the score today</h2>
+    <table id="comp"></table>
+    <p><small id="note"></small></p>
+  </div>
+  <p><small>Information only, not financial advice.</small></p>
+</main>
+<script>
+const D = __DATA__;
+const $ = id => document.getElementById(id);
+const pct = (x, d=1) => x == null ? "n/a" : (x*100).toFixed(d) + "%";
+const num = x => x == null ? "n/a" : x.toFixed(2);
+const col = s => s == null ? "var(--mut)" : s > 0.15 ? "var(--good)" : s < -0.15 ? "var(--bad)" : "var(--text)";
+
+$("gen").textContent = "Updated " + D.generated;
+if (D.mock) $("mock").style.display = "block";
+
+// top cards
+const L = D.latest, S = D.social, last = D.series[D.series.length-1];
+$("top").innerHTML = `
+  <div class="card"><div class="mut">Sentiment (${L.date||"-"})</div><div class="big" style="color:${col(L.score)}">${L.label}</div><div class="mut">${num(L.score)} / 1</div></div>
+  <div class="card"><div class="mut">BTC price</div><div class="big">${last.p ? "$"+Math.round(last.p).toLocaleString() : "n/a"}</div><div class="mut">${last.d}</div></div>
+  <div class="card"><div class="mut">Social (manual)${S.latest ? " · "+S.latest.date : ""}</div><div class="big" style="color:${col(S.latest&&S.latest.score)}">${S.latest ? num(S.latest.score) : "no entries"}</div><div class="mut">${S.days} day${S.days===1?"":"s"} logged</div></div>
+  <div class="card"><div class="mut">Days of history</div><div class="big">${D.series.length}</div><div class="mut">CryptoPanic days: ${D.cp_days}</div></div>`;
+
+// chart
+let range = 180;
+const ranges = [["90d",90],["180d",180],["1y",365],["All",1e9]];
+$("tabs").innerHTML = ranges.map(r => `<button data-r="${r[1]}" class="${r[1]===range?"on":""}">${r[0]}</button>`).join("");
+$("tabs").onclick = e => { if (e.target.dataset.r) { range = +e.target.dataset.r; draw(); [...$("tabs").children].forEach(b => b.classList.toggle("on", +b.dataset.r === range)); } };
+
+function draw() {
+  const W=960, H=360, m={l:56,r:46,t:10,b:24};
+  const pts = D.series.slice(-range);
+  const n = pts.length; if (n < 2) return;
+  const prices = pts.map(p=>p.p).filter(v=>v!=null);
+  const pmin = Math.min(...prices)*0.97, pmax = Math.max(...prices)*1.03;
+  const x = i => m.l + (W-m.l-m.r) * i/(n-1);
+  const yp = v => m.t + (H-m.t-m.b) * (1 - (v-pmin)/(pmax-pmin));
+  const ys = v => m.t + (H-m.t-m.b) * (1 - (v+1)/2);
+  const path = (get, y) => { let d="", on=false; pts.forEach((p,i)=>{ const v=get(p); if(v==null){on=false;return;} d+=(on?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1); on=true; }); return d; };
+  let g = "";
+  for (let k=0;k<=4;k++){ const v=pmin+(pmax-pmin)*k/4, yy=yp(v);
+    g += `<line x1="${m.l}" x2="${W-m.r}" y1="${yy}" y2="${yy}" stroke="#2a313c"/><text x="${m.l-6}" y="${yy+4}" text-anchor="end">$${Math.round(v/1000)}k</text>`; }
+  [-1,-0.5,0,0.5,1].forEach(v=>{ g += `<text x="${W-m.r+6}" y="${ys(v)+4}">${v}</text>`; });
+  g += `<line x1="${m.l}" x2="${W-m.r}" y1="${ys(0)}" y2="${ys(0)}" stroke="#8b949e" stroke-dasharray="4 4"/>`;
+  const step = Math.max(1, Math.floor(n/6));
+  for (let i=0;i<n;i+=step) g += `<text x="${x(i)}" y="${H-6}" text-anchor="middle">${pts[i].d.slice(2)}</text>`;
+  g += `<path d="${path(p=>p.p, yp)}" fill="none" stroke="var(--price)" stroke-width="1.8"/>`;
+  g += `<path d="${path(p=>p.s, ys)}" fill="none" stroke="var(--sent)" stroke-width="1.6"/>`;
+  pts.forEach((p,i)=>{ if (p.m!=null) g += `<circle cx="${x(i)}" cy="${ys(p.m)}" r="4" fill="var(--soc)"><title>${p.d} social ${p.m.toFixed(2)}</title></circle>`; });
+  $("chart").innerHTML = g;
+}
+draw();
+
+// accuracy tables
+const accTable = A => `<tr><th>Next…</th><th>Observations</th><th>Level corr.</th><th>Change corr.</th><th>Hit rate</th><th>Base rate (up)</th></tr>` +
+  A.map(a => {
+    if (a.n < 10) return `<tr><td>${a.horizon} day${a.horizon>1?"s":""}</td><td>${a.n}</td><td colspan="4" class="mut" style="text-align:center">Not enough data yet (need 10+)</td></tr>`;
+    const edge = a.hit_rate!=null && a.base_up!=null ? a.hit_rate - a.base_up : null;
+    return `<tr><td>${a.horizon} day${a.horizon>1?"s":""}</td><td>${a.n}</td><td>${num(a.corr_level)}</td><td>${num(a.corr_change)}</td>
+      <td style="color:${edge==null?"inherit":edge>0.03?"var(--good)":edge<-0.03?"var(--bad)":"inherit"}">${pct(a.hit_rate)} <small>(n=${a.hit_n})</small></td><td>${pct(a.base_up)}</td></tr>`; }).join("");
+$("acc").innerHTML = accTable(D.accuracy);
+$("accsoc").innerHTML = accTable(S.accuracy);
+$("socnote").textContent = S.days < 100
+  ? `Only ${S.days} day${S.days===1?"":"s"} logged so far. These numbers mean little until you have ~100.`
+  : "Compare this with the composite above to see whether reading the chat adds anything.";
+$("soclog").innerHTML = S.log.length
+  ? `<tr><th>Date</th><th>Source</th><th>Score</th><th>Method</th></tr>` +
+    S.log.map(e => `<tr><td>${e.d}</td><td>${e.src}</td><td style="color:${col(e.s)}">${num(e.s)}</td><td>${e.how}${e.n?` (${e.n} lines)`:""}</td></tr>`).join("")
+  : `<tr><td class="mut">Nothing yet. Add a file to manual/ or run log_score.py.</td></tr>`;
+
+// components
+const names = {fng:"Fear & Greed Index", funding:"Perp funding rate", ls:"Long/short account ratio", cp:"CryptoPanic votes", soc:"Social (manual)"};
+$("comp").innerHTML = `<tr><th>Input</th><th>Today (-1 to +1)</th><th>Weight</th></tr>` +
+  Object.keys(names).map(k => { const v = D.components[k]; return `<tr><td>${names[k]}</td><td style="color:${col(v)}">${v==null?"not available":num(v)}</td><td>${Math.round(D.weights[k]*100)}%</td></tr>`; }).join("");
+$("note").textContent = "Weights are renormalised across whichever inputs have data. CryptoPanic has no history, so it only counts from the day collection started" + (D.cp_days ? "." : " (no token configured yet).");
+</script>
+</body>
+</html>
