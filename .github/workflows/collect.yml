@@ -19,6 +19,7 @@ jobs:
       - name: Collect
         env:
           CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
         run: python collect.py
       - name: Build dashboard
         run: python build.py
