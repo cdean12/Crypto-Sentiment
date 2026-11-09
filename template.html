@@ -43,13 +43,18 @@
       {"symbol": "OKX:BTCUSDT", "width": "100%", "isTransparent": true, "colorTheme": "dark", "locale": "en"}
       </script>
     </div>
-    <div class="tradingview-widget-container" style="height:480px">
-      <div class="tradingview-widget-container__widget" style="height:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-      {"autosize": true, "symbol": "OKX:BTCUSDT", "interval": "D", "timezone": "Australia/Sydney", "theme": "dark",
-       "style": "1", "locale": "en", "backgroundColor": "#161b22", "allow_symbol_change": true,
-       "hide_side_toolbar": false, "support_host": "https://www.tradingview.com"}
-      </script>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px" class="tabs" id="tvsize">
+      <button data-h="420">S</button><button data-h="650">M</button><button data-h="900">L</button><button data-h="full">Full screen</button>
+    </div>
+    <div id="tvwrap" style="height:650px;background:#161b22">
+      <div class="tradingview-widget-container" style="height:100%;width:100%">
+        <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+        {"autosize": true, "symbol": "OKX:BTCUSDT", "interval": "D", "timezone": "Australia/Sydney", "theme": "dark",
+         "style": "1", "locale": "en", "backgroundColor": "#161b22", "allow_symbol_change": true,
+         "hide_side_toolbar": false, "support_host": "https://www.tradingview.com"}
+        </script>
+      </div>
     </div>
     <p><small>Live chart by TradingView. Change the symbol or add indicators (e.g. Ichimoku) from the chart itself. The sentiment scores below use the hourly OKX price.</small></p>
   </div>
@@ -105,6 +110,23 @@ const col = s => s == null ? "var(--mut)" : s > 0.15 ? "var(--good)" : s < -0.15
 
 $("gen").textContent = "Updated " + D.generated;
 if (D.mock) $("mock").style.display = "block";
+
+// TradingView chart size (remembered in this browser)
+(function(){
+  const wrap = $("tvwrap"), bar = $("tvsize");
+  const mark = h => [...bar.children].forEach(b => b.classList.toggle("on", b.dataset.h === String(h)));
+  let saved = null; try { saved = localStorage.getItem("tvh"); } catch(e) {}
+  if (saved) { wrap.style.height = saved + "px"; mark(saved); } else mark(650);
+  bar.onclick = e => {
+    const h = e.target.dataset.h; if (!h) return;
+    if (h === "full") { (wrap.requestFullscreen || wrap.webkitRequestFullscreen || (()=>{})).call(wrap); return; }
+    wrap.style.height = h + "px"; mark(h);
+    try { localStorage.setItem("tvh", h); } catch(e) {}
+  };
+  document.addEventListener("fullscreenchange", () => {
+    wrap.style.height = document.fullscreenElement === wrap ? "100vh" : ((()=>{ try { return localStorage.getItem("tvh"); } catch(e) {} })() || 650) + "px";
+  });
+})();
 
 // top cards
 const L = D.latest, S = D.social, last = D.series[D.series.length-1];
