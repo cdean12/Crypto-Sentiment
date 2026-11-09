@@ -57,6 +57,12 @@
   </div>
 
   <div class="card">
+    <h2>Each input on its own</h2>
+    <table id="inputs"></table>
+    <p><small>Which inputs have carried any signal. Hit rate is shown next to the base rate for the same days; it needs to beat the base rate to be useful.</small></p>
+  </div>
+
+  <div class="card">
     <h2>Social (manual) on its own</h2>
     <table id="accsoc"></table>
     <p><small id="socnote"></small></p>
@@ -137,9 +143,16 @@ $("soclog").innerHTML = S.log.length
   : `<tr><td class="mut">Nothing yet. Add a file to manual/ or run log_score.py.</td></tr>`;
 
 // components
-const names = {fng:"Fear & Greed Index", funding:"Perp funding rate", ls:"Long/short account ratio", cp:"CryptoPanic votes", soc:"Social (manual)"};
+const names = {fng:"Fear & Greed (alternative.me)", cmc:"Fear & Greed (CoinMarketCap)", funding:"Perp funding rate", ls:"Long/short account ratio", cp:"CryptoPanic votes", soc:"Social (manual)"};
 $("comp").innerHTML = `<tr><th>Input</th><th>Today (-1 to +1)</th><th>Weight</th></tr>` +
   Object.keys(names).map(k => { const v = D.components[k]; return `<tr><td>${names[k]}</td><td style="color:${col(v)}">${v==null?"not available":num(v)}</td><td>${Math.round(D.weights[k]*100)}%</td></tr>`; }).join("");
+const h = (A, n) => A.find(a => a.horizon === n);
+$("inputs").innerHTML = `<tr><th>Input</th><th>Days</th><th>7d corr.</th><th>30d corr.</th><th>7d hit rate</th><th>7d base rate</th></tr>` +
+  Object.keys(names).map(k => { const A = D.inputs[k], a7 = h(A,7), a30 = h(A,30);
+    if (!a7 || a7.n < 10) return `<tr><td>${names[k]}</td><td>${a7?a7.n:0}</td><td colspan="4" class="mut" style="text-align:center">Not enough data yet</td></tr>`;
+    const edge = a7.hit_rate!=null && a7.base_up!=null ? a7.hit_rate - a7.base_up : null;
+    return `<tr><td>${names[k]}</td><td>${a7.n}</td><td>${num(a7.corr_level)}</td><td>${num(a30&&a30.corr_level)}</td>
+      <td style="color:${edge==null?"inherit":edge>0.03?"var(--good)":edge<-0.03?"var(--bad)":"inherit"}">${pct(a7.hit_rate)}</td><td>${pct(a7.base_up)}</td></tr>`; }).join("");
 $("note").textContent = "Weights are renormalised across whichever inputs have data. CryptoPanic has no history, so it only counts from the day collection started" + (D.cp_days ? "." : " (no token configured yet).");
 </script>
 </body>
