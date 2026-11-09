@@ -252,10 +252,7 @@ def run_live(force_backfill):
         sys.exit("No data collected - every source failed.")
     save_daily(rows)
 
-    cp = safe("cryptopanic", fetch_cryptopanic, None)
-    if cp:
-        append_cp(*cp)
-    print(f"daily.csv: {len(rows)} days; cryptopanic: {'ok' if cp else 'skipped'}")
+    print(f"daily.csv: {len(rows)} days")
 
 
 def run_mock():
