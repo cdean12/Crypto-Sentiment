@@ -21,6 +21,7 @@ import math
 import os
 import random
 import sys
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
@@ -34,6 +35,8 @@ CP_COLS = ["timestamp", "positive", "negative", "posts"]
 UA = {"User-Agent": "crypto-sentiment-dashboard/1.0"}
 OKX = "https://www.okx.com"
 BACKFILL_DAYS = 400
+PRICE_BACKFILL_DAYS = 3300   # match Fear & Greed history (2018 onward)
+MARKER = DATA / "backfill_v2"  # bump the name to force a fresh backfill
 
 
 def get(url, params=None, timeout=20):
@@ -81,6 +84,7 @@ def fetch_price_history(days=BACKFILL_DAYS):
         for r in rows:
             out[day(r[0])] = float(r[4])
         after = rows[-1][0]
+        time.sleep(0.2)  # stay well inside OKX rate limits
     return out
 
 
@@ -175,12 +179,14 @@ def run_live(force_backfill):
     if (DATA / "MOCK").exists():
         sys.exit("data/ holds synthetic MOCK data. Delete data/MOCK and data/daily.csv first.")
     rows = load_daily()
-    if force_backfill or len(rows) < 30:
+    if force_backfill or len(rows) < 30 or not MARKER.exists():
         print("Backfilling history...")
-        merge(rows, "price", safe("price history", fetch_price_history, {}))
+        merge(rows, "price", safe("price history", lambda: fetch_price_history(PRICE_BACKFILL_DAYS), {}))
         merge(rows, "fng", safe("fear&greed history", fetch_fng, {}))
         merge(rows, "funding", safe("funding history", fetch_funding_history, {}))
         merge(rows, "ls_ratio", safe("long/short history", fetch_ls_history, {}))
+        DATA.mkdir(exist_ok=True)
+        MARKER.write_text("history backfilled\n")
     else:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         r = rows.setdefault(today, {"date": today})
@@ -192,8 +198,7 @@ def run_live(force_backfill):
         if today in fng:
             r["fng"] = f"{fng[today]:.8g}"
         ls = safe("long/short", fetch_ls_history, {})
-        if today in ls:
-            r["ls_ratio"] = f"{ls[today]:.8g}"
+        merge(rows, "ls_ratio", ls)  # fills any recent days that were missing
     if not rows:
         sys.exit("No data collected - every source failed.")
     save_daily(rows)
