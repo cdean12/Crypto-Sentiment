@@ -30,19 +30,21 @@ from pathlib import Path
 DATA = Path(__file__).parent / "data"
 DAILY = DATA / "daily.csv"
 CP = DATA / "cryptopanic.csv"
-DAILY_COLS = ["date", "price", "fng", "funding", "ls_ratio"]
+DAILY_COLS = ["date", "price", "fng", "cmc_fng", "funding", "ls_ratio"]
 CP_COLS = ["timestamp", "positive", "negative", "posts"]
 UA = {"User-Agent": "crypto-sentiment-dashboard/1.0"}
 OKX = "https://www.okx.com"
 BACKFILL_DAYS = 400
 PRICE_BACKFILL_DAYS = 3300   # match Fear & Greed history (2018 onward)
 MARKER = DATA / "backfill_v2"  # bump the name to force a fresh backfill
+CMC_MARKER = DATA / "backfill_cmc"
+CMC = "https://pro-api.coinmarketcap.com"
 
 
-def get(url, params=None, timeout=20):
+def get(url, params=None, timeout=20, headers=None):
     if params:
         url += "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers=UA)
+    req = urllib.request.Request(url, headers={**UA, **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
@@ -120,6 +122,44 @@ def fetch_ls_history():
     return {day(r[0]): float(r[1]) for r in js.get("data", [])}
 
 
+def _cmc_day(ts):
+    """CMC timestamps come as unix seconds (string) or ISO text."""
+    ts = str(ts)
+    if ts.isdigit():
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+    return ts[:10]
+
+
+def _cmc_headers():
+    key = os.environ.get("CMC_API_KEY")
+    return {"X-CMC_PRO_API_KEY": key, "Accept": "application/json"} if key else None
+
+
+def fetch_cmc_history():
+    """CoinMarketCap Fear & Greed, full history (needs free CMC_API_KEY)."""
+    h = _cmc_headers()
+    if not h:
+        return {}
+    out, start = {}, 1
+    for _ in range(40):
+        rows = get(f"{CMC}/v3/fear-and-greed/historical", {"start": start, "limit": 500}, headers=h).get("data") or []
+        if not rows:
+            break
+        for r in rows:
+            out[_cmc_day(r["timestamp"])] = float(r["value"])
+        start += len(rows)
+        time.sleep(2.5)  # free plan: 30 requests/minute
+    return out
+
+
+def fetch_cmc_now():
+    h = _cmc_headers()
+    if not h:
+        return None
+    d = get(f"{CMC}/v3/fear-and-greed/latest", headers=h)["data"]
+    return float(d["value"])
+
+
 def fetch_cryptopanic():
     """Count community bullish/bearish votes on the latest BTC posts.
 
@@ -187,18 +227,27 @@ def run_live(force_backfill):
         merge(rows, "ls_ratio", safe("long/short history", fetch_ls_history, {}))
         DATA.mkdir(exist_ok=True)
         MARKER.write_text("history backfilled\n")
-    else:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        r = rows.setdefault(today, {"date": today})
-        for col, fn in [("price", fetch_price_now), ("funding", fetch_funding_now)]:
-            v = safe(col, fn, None)
-            if v is not None:
-                r[col] = f"{v:.8g}"
-        fng = safe("fear&greed", fetch_fng, {})
-        if today in fng:
-            r["fng"] = f"{fng[today]:.8g}"
-        ls = safe("long/short", fetch_ls_history, {})
-        merge(rows, "ls_ratio", ls)  # fills any recent days that were missing
+    if os.environ.get("CMC_API_KEY") and not CMC_MARKER.exists():
+        print("Backfilling CMC Fear & Greed...")
+        cmc = safe("cmc history", fetch_cmc_history, {})
+        merge(rows, "cmc_fng", cmc)
+        if cmc:
+            CMC_MARKER.write_text("cmc backfilled\n")
+    # today's values, every run
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    r = rows.setdefault(today, {"date": today})
+    for col, fn in [("price", fetch_price_now), ("funding", fetch_funding_now)]:
+        v = safe(col, fn, None)
+        if v is not None:
+            r[col] = f"{v:.8g}"
+    fng = safe("fear&greed", fetch_fng, {})
+    if today in fng:
+        r["fng"] = f"{fng[today]:.8g}"
+    cmc_now = safe("cmc", fetch_cmc_now, None)
+    if cmc_now is not None:
+        r["cmc_fng"] = f"{cmc_now:.8g}"
+    ls = safe("long/short", fetch_ls_history, {})
+    merge(rows, "ls_ratio", ls)  # fills any recent days that were missing
     if not rows:
         sys.exit("No data collected - every source failed.")
     save_daily(rows)
@@ -227,6 +276,7 @@ def run_mock():
             "date": d,
             "price": f"{price:.2f}",
             "fng": f"{max(2, min(98, 50 + 45 * m + random.gauss(0, 5))):.0f}",
+            "cmc_fng": f"{max(2, min(98, 50 + 40 * m + random.gauss(0, 6))):.0f}" if i > 150 else "",
             "funding": f"{0.0001 + 0.0002 * m + random.gauss(0, 0.00005):.8f}",
             "ls_ratio": f"{math.exp(0.25 * m + random.gauss(0, 0.05)):.4f}",
         }
