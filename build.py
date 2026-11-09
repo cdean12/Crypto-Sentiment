@@ -13,7 +13,7 @@ CP = ROOT / "data" / "cryptopanic.csv"
 OUT = ROOT / "docs" / "index.html"
 
 # Weights are renormalised over whichever components exist on a given day.
-WEIGHTS = {"fng": 0.30, "funding": 0.25, "ls": 0.10, "cp": 0.10, "soc": 0.25}
+WEIGHTS = {"fng": 0.15, "cmc": 0.15, "funding": 0.25, "ls": 0.10, "cp": 0.10, "soc": 0.25}
 MANUAL_DIR = ROOT / "manual"
 MANUAL_CSV = ROOT / "data" / "manual_scores.csv"
 FUNDING_SCALE = 0.0003   # +/-0.03% per 8h maps to +/-1 (extreme crowded long/short)
@@ -44,7 +44,7 @@ def load_daily():
     # start the series at the first day with a price
     first = next((i for i, r in enumerate(rows) if f(r.get("price")) is not None), len(rows))
     rows = rows[first:]
-    for col in ("fng", "funding", "ls_ratio"):
+    for col in ("fng", "cmc_fng", "funding", "ls_ratio"):
         last, age = None, 0
         for r in rows:
             if f(r.get(col)) is not None:
@@ -119,6 +119,8 @@ def components(row, cp, soc=None, ls=None):
     c = {}
     if f(row["fng"]) is not None:
         c["fng"] = clip((f(row["fng"]) - 50) / 50)
+    if f(row.get("cmc_fng")) is not None:
+        c["cmc"] = clip((f(row["cmc_fng"]) - 50) / 50)
     if f(row["funding"]) is not None:
         c["funding"] = clip(f(row["funding"]) / FUNDING_SCALE)
     if ls and row["date"] in ls:
@@ -202,17 +204,20 @@ def main():
     for r in rows:
         c = components(r, cp, soc, ls)
         s = composite(c)
-        series.append({"date": r["date"], "price": f(r["price"]), "score": s, "soc": c.get("soc"), "c": c})
+        series.append({"date": r["date"], "price": f(r["price"]), "score": s, "soc": c.get("soc"), "c": c,
+                       **{"c_" + k: c.get(k) for k in WEIGHTS}})
         if c:
             latest_c = c
     acc = accuracy(series)
     acc_soc = accuracy(series, "soc")
+    acc_inputs = {k: accuracy(series, "c_" + k) for k in WEIGHTS}
     last_soc = next((s for s in reversed(series) if s["soc"] is not None), None)
     last = next((s for s in reversed(series) if s["score"] is not None), None)
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "series": [{"d": s["date"], "p": s["price"], "s": s["score"], "m": s["soc"]} for s in series],
         "components": latest_c,
+        "inputs": acc_inputs,
         "social": {"days": len(soc), "log": soc_log, "accuracy": acc_soc,
                    "latest": {"score": last_soc["soc"], "date": last_soc["date"]} if last_soc else None},
         "weights": WEIGHTS,
