@@ -34,9 +34,25 @@ def f(v):
         return None
 
 
+FILL_DAYS = 2  # carry a value forward this many days when a source hasn't published yet
+
+
 def load_daily():
     with open(DAILY, newline="") as fh:
-        return sorted(csv.DictReader(fh), key=lambda r: r["date"])
+        rows = sorted(csv.DictReader(fh), key=lambda r: r["date"])
+    # start the series at the first day with a price
+    first = next((i for i, r in enumerate(rows) if f(r.get("price")) is not None), len(rows))
+    rows = rows[first:]
+    for col in ("fng", "funding", "ls_ratio"):
+        last, age = None, 0
+        for r in rows:
+            if f(r.get(col)) is not None:
+                last, age = r[col], 0
+            elif last is not None and age < FILL_DAYS:
+                r[col], age = last, age + 1
+            else:
+                last = None
+    return rows
 
 
 def load_cp_daily():
