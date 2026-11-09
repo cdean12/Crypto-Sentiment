@@ -13,7 +13,7 @@ CP = ROOT / "data" / "cryptopanic.csv"
 OUT = ROOT / "docs" / "index.html"
 
 # Weights are renormalised over whichever components exist on a given day.
-WEIGHTS = {"fng": 0.15, "cmc": 0.15, "funding": 0.25, "ls": 0.10, "cp": 0.10, "soc": 0.25}
+WEIGHTS = {"fng": 0.15, "cmc": 0.15, "funding": 0.25, "ls": 0.10, "soc": 0.35}
 MANUAL_DIR = ROOT / "manual"
 MANUAL_CSV = ROOT / "data" / "manual_scores.csv"
 FUNDING_SCALE = 0.0003   # +/-0.03% per 8h maps to +/-1 (extreme crowded long/short)
@@ -197,7 +197,7 @@ def label(s):
 
 def main():
     rows = load_daily()
-    cp = load_cp_daily()
+    cp = {}  # CryptoPanic removed
     soc, soc_log = load_social()
     ls = ls_scores(rows)
     series, latest_c = [], {}
@@ -224,7 +224,6 @@ def main():
         "latest": {"score": last["score"] if last else None, "label": label(last["score"] if last else None),
                    "date": last["date"] if last else None},
         "accuracy": acc,
-        "cp_days": len(cp),
         "mock": (ROOT / "data" / "MOCK").exists(),
     }
     OUT.parent.mkdir(exist_ok=True)
