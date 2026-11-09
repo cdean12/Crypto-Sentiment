@@ -134,7 +134,7 @@ $("top").innerHTML = `
   <div class="card"><div class="mut">Sentiment (${L.date||"-"})</div><div class="big" style="color:${col(L.score)}">${L.label}</div><div class="mut">${num(L.score)} / 1</div></div>
   <div class="card"><div class="mut">BTC price (hourly, used for scoring)</div><div class="big">${last.p ? "$"+Math.round(last.p).toLocaleString() : "n/a"}</div><div class="mut">${last.d}</div></div>
   <div class="card"><div class="mut">Social (manual)${S.latest ? " · "+S.latest.date : ""}</div><div class="big" style="color:${col(S.latest&&S.latest.score)}">${S.latest ? num(S.latest.score) : "no entries"}</div><div class="mut">${S.days} day${S.days===1?"":"s"} logged</div></div>
-  <div class="card"><div class="mut">Days of history</div><div class="big">${D.series.length}</div><div class="mut">CryptoPanic days: ${D.cp_days}</div></div>`;
+  <div class="card"><div class="mut">Days of history</div><div class="big">${D.series.length}</div><div class="mut">since ${D.series[0].d}</div></div>`;
 
 // chart
 let range = 180;
@@ -184,7 +184,7 @@ $("soclog").innerHTML = S.log.length
   : `<tr><td class="mut">Nothing yet. Add a file to manual/ or run log_score.py.</td></tr>`;
 
 // components
-const names = {fng:"Fear & Greed (alternative.me)", cmc:"Fear & Greed (CoinMarketCap)", funding:"Perp funding rate", ls:"Long/short account ratio", cp:"CryptoPanic votes", soc:"Social (manual)"};
+const names = {fng:"Fear & Greed (alternative.me)", cmc:"Fear & Greed (CoinMarketCap)", funding:"Perp funding rate", ls:"Long/short account ratio", soc:"Social (manual)"};
 $("comp").innerHTML = `<tr><th>Input</th><th>Today (-1 to +1)</th><th>Weight</th></tr>` +
   Object.keys(names).map(k => { const v = D.components[k]; return `<tr><td>${names[k]}</td><td style="color:${col(v)}">${v==null?"not available":num(v)}</td><td>${Math.round(D.weights[k]*100)}%</td></tr>`; }).join("");
 const h = (A, n) => A.find(a => a.horizon === n);
@@ -194,7 +194,7 @@ $("inputs").innerHTML = `<tr><th>Input</th><th>Days</th><th>7d corr.</th><th>30d
     const edge = a7.hit_rate!=null && a7.base_up!=null ? a7.hit_rate - a7.base_up : null;
     return `<tr><td>${names[k]}</td><td>${a7.n}</td><td>${num(a7.corr_level)}</td><td>${num(a30&&a30.corr_level)}</td>
       <td style="color:${edge==null?"inherit":edge>0.03?"var(--good)":edge<-0.03?"var(--bad)":"inherit"}">${pct(a7.hit_rate)}</td><td>${pct(a7.base_up)}</td></tr>`; }).join("");
-$("note").textContent = "Weights are renormalised across whichever inputs have data. CryptoPanic has no history, so it only counts from the day collection started" + (D.cp_days ? "." : " (no token configured yet).");
+$("note").textContent = "Weights are renormalised across whichever inputs have data, so days without a social entry use the other inputs only.";
 </script>
 </body>
 </html>
